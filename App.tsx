@@ -28,7 +28,7 @@ const App: React.FC = () => {
       <Footer />
 
       <Modal isOpen={isModalOpen} onClose={closeModal}>
-        <LeadForm />
+        <LeadForm onClose={closeModal} />
       </Modal>
     </div>
   );

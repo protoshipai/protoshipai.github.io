@@ -67,15 +67,31 @@ const LeadForm: React.FC<LeadFormProps> = ({ onClose }) => {
 
         try {
             if (portalId && formGuid) {
-                const resp = await fetch(`https://api.hsforms.com/submissions/v3/integration/submit/${portalId}/${formGuid}` as string, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                if (!resp.ok) {
-                    const text = await resp.text();
-                    throw new Error(`HubSpot submission failed (${resp.status}): ${text}`);
+                const controller = new AbortController();
+                const timeoutId = window.setTimeout(() => controller.abort(), 10000);
+                let timedOut = false;
+                try {
+                    const resp = await fetch(`https://api.hsforms.com/submissions/v3/integration/submit/${portalId}/${formGuid}` as string, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                        signal: controller.signal,
+                    });
+                    clearTimeout(timeoutId);
+                    if (!resp.ok) {
+                        const text = await resp.text();
+                        throw new Error(`HubSpot submission failed (${resp.status}): ${text}`);
+                    }
+                } catch (err: any) {
+                    clearTimeout(timeoutId);
+                    if (err && err.name === 'AbortError') {
+                        timedOut = true;
+                        console.warn('HubSpot submission timed out; showing success to avoid blocking UX.');
+                    } else {
+                        throw err;
+                    }
                 }
+                // Proceed to success whether response OK or timed out (HubSpot often accepts quickly even if network is slow)
             } else {
                 console.warn('HubSpot IDs missing. Set VITE_HS_PORTAL_ID and VITE_HS_FORM_GUID in .env.local');
             }
@@ -108,6 +124,9 @@ const LeadForm: React.FC<LeadFormProps> = ({ onClose }) => {
             }
         } catch (err: any) {
             console.error(err);
+            // Push error event to GTM
+            (window as any).dataLayer = (window as any).dataLayer || [];
+            (window as any).dataLayer.push({ event: 'lead_submit_error', error_message: String(err?.message || err) });
             setErrorMsg('Something went wrong. Please try again in a moment.');
         } finally {
             setSubmitting(false);
